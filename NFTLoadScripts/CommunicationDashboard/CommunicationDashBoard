@@ -1,0 +1,160 @@
+import java.util.Set;
+import java.util.List;
+import java.lang.Math;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.openqa.selenium.By;
+import org.openqa.selenium.Keys;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.interactions.Actions;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.Sleeper;
+import org.openqa.selenium.support.ui.WebDriverWait;
+// Required to start counting time which will get reported at the end of this code.
+WDS.sampleResult.sampleStart();
+String baseUrl = "https://stage2service.dealer-fx.com/logins/Login.2.aspx";
+//String baseUrl = "https://test2service.dealer-fx.com/logins/Login.2.aspx";
+var vars = org.apache.jmeter.threads.JMeterContextService.getContext().getVariables();
+org.openqa.selenium.support.ui.WebDriverWait lWait;
+int LONGTIMEOUT = 2 * 60;
+int chatMessageLoopCount = 5;
+int smsLoopCount = 1;
+int chatMessagefailureCount = 0;
+int smsfailureCount = 0;
+//int countofAdvisors = 250;
+String cellNumber = "6477120113";
+String smsPrefix = "Dear ";
+String smsSuffix = ", hope you are doing good. This is dummy message from Load test. Please ignore. Thanks Dealer-FX";
+String smsText;
+int index1, index2;
+System.out.println("Driver long timeout is "+ LONGTIMEOUT);
+lWait = new WebDriverWait(WDS.browser, LONGTIMEOUT);
+System.out.println("LWAIT Object is "+ lWait);
+// Load the home page
+WDS.browser.get(baseUrl);
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.id("txtFrameworkUserName")));
+WDS.browser.findElement(By.id("txtFrameworkUserName")).sendKeys( new String[] { vars.get('username') } );
+WDS.browser.findElement(By.id("txtFrameworkPassword")).sendKeys( new String[] { vars.get('password') } );
+lWait.until(ExpectedConditions.elementToBeClickable(By.xpath("//input [@type = 'submit']")));
+WDS.browser.executeScript("arguments[0].click();", WDS.browser.findElement(By.xpath("//input [@type = 'submit']")));
+System.out.println("<====== Clicked on Submit button on login screen ======>");	
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//span[@class='material-icons']")));
+WDS.browser.findElement(By.xpath("//span[@class='material-icons']")).click();
+System.out.println("<====== Clicked on Chat icon on home screen ======>");	
+Thread.sleep(5000);
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//span[text()='Internal']")));
+WDS.browser.findElement(By.xpath("//span[text()='Internal']")).click();
+System.out.println("<====== Clicked internal section on chat window ======>");	
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//span[@class='edit']")));
+WDS.browser.findElement(By.xpath("//span[@class='edit']")).click();
+System.out.println("<====== Clicked edit on chat window ======>");	
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//a[@class='dropdown-item' and text()='Send Internal Message']")));
+WDS.browser.findElement(By.xpath("//a[@class='dropdown-item' and text()='Send Internal Message']")).click();
+System.out.println("<====== Clicked send internal message ======>");
+//Implement Random selection of advisor
+//index1  = ((int)(Math.random() * 999999)) % 10000;
+index1  =  (int)((Math.random()*(250)+ 1)); 
+System.out.println("<====== Index1 is  ======> "+index1);
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("(//label[@class='ml-5 pt-2 user-name'])["+index1+"]")));
+WDS.browser.findElement(By.xpath("(//label[@class='ml-5 pt-2 user-name'])["+index1+"]")).click();
+System.out.println("<====== Clicked first element at index ======> "+index1);
+Thread.sleep(3000);
+index2  =  (int)((Math.random()*(250) + 1)); 
+System.out.println("<====== Index2 is  ======> "+index2);
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("(//label[@class='ml-5 pt-2 user-name'])["+index2+"]")));
+WDS.browser.findElement(By.xpath("(//label[@class='ml-5 pt-2 user-name'])["+index2+"]")).click();
+System.out.println("<====== Clicked second element at index ======> "+index2);
+Thread.sleep(3000);
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//i[@class='material-icons' and text()='arrow_forward']")));
+WDS.browser.findElement(By.xpath("//i[@class='material-icons' and text()='arrow_forward']")).click();
+Thread.sleep(5000);
+System.out.println("<====== Clicked forward arrow button to initiate the chat ======>");
+for (int chatMessageCount = 0; chatMessageCount < chatMessageLoopCount; chatMessageCount++) {
+	String requireChar = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+     StringBuilder actualString = new StringBuilder();
+     Random rnd = new Random();
+     while (actualString.length() < 5) { 
+     	int index = (int) (rnd.nextFloat() * requireChar.length());
+          actualString.append(requireChar.charAt(index));
+	}
+     String randomText = actualString.toString();
+	System.out.println("<====== Random text to be entered is ======> "+randomText);
+	lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//dfx-message-input/div/div/input[@type='text']")));
+	WDS.browser.findElement(By.xpath("//dfx-message-input/div/div/input[@type='text']")).sendKeys( new String[] { randomText } );
+	Thread.sleep(2000);
+	WDS.browser.findElement(By.xpath("//dfx-message-input/div/div/input[@type='text']")).sendKeys( new String[] { Keys.ENTER } );
+	Thread.sleep(5000);	
+	try {
+		lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//div[@class='message-body me']/p[text()='"+randomText+"']")));
+	}
+	catch(org.openqa.selenium.TimeoutException ex)
+	{
+		System.out.println("Timeout exception - Chat Message ---------- "+ randomText +" ---------- not found on UI");  
+		chatMessagefailureCount = chatMessagefailureCount + 1;
+		System.out.println("Current chat message failure count is " +chatMessagefailureCount);  				
+	}		
+}
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//div[@class='message-wrapper']/div/div/a/dfx-icon[@icon='close']")));
+WDS.browser.findElement(By.xpath("//div[@class='message-wrapper']/div/div/a/dfx-icon[@icon='close']")).click();
+System.out.println("<====== Clicked close button for Internal customer message ======>");	
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//span[text()='Customer']")));
+WDS.browser.findElement(By.xpath("//span[text()='Customer']")).click();
+System.out.println("<====== Clicked customer section on chat window ======>");	
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//span[@class='edit']")));
+WDS.browser.findElement(By.xpath("//span[@class='edit']")).click();
+System.out.println("<====== Clicked edit on chat window ======>");	
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//a[@class='dropdown-item' and text()='Message Customer']")));
+WDS.browser.findElement(By.xpath("//a[@class='dropdown-item' and text()='Message Customer']")).click();
+System.out.println("<====== Clicked message customer ======>");
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//div[@class='search-bar col-auto mt-4']/input[@id='userValue']")));
+WDS.browser.findElement(By.xpath("//div[@class='search-bar col-auto mt-4']/input[@id='userValue']")).sendKeys( new String[] { cellNumber } );
+System.out.println("<====== Entered cell number ======>");
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("(//label[text()='Cell Phone'])[1]")));
+WDS.browser.findElement(By.xpath("(//label[text()='Cell Phone'])[1]")).click();
+System.out.println("<====== Selected customer from the list for SMS ======>");
+for (int smsCount = 0; smsCount < smsLoopCount; smsCount++) {
+
+	String reqChar = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+     StringBuilder randomString = new StringBuilder();
+     Random rnd = new Random();
+     while (randomString.length() < 5) { 
+     	int index = (int) (rnd.nextFloat() * reqChar.length());
+          randomString.append(reqChar.charAt(index));
+	}
+     String smsCustomerName = randomString.toString();
+	System.out.println("<====== Name of customer for SMS is  ======> "+smsCustomerName);
+	smsText = smsPrefix.concat(smsCustomerName).concat(smsSuffix);
+	System.out.println("<====== SMS to be sent to customer is ======> "+smsText);		
+	lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//dfx-message-input/div/div/input[@type='text']")));
+	WDS.browser.findElement(By.xpath("//dfx-message-input/div/div/input[@type='text']")).sendKeys( new String[] { smsText } );
+	Thread.sleep(2000);//do not remove this sleep
+	WDS.browser.findElement(By.xpath("//dfx-message-input/div/div/input[@type='text']")).sendKeys( new String[] { Keys.ENTER } );
+	Thread.sleep(5000);	
+	try {
+		lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//div[@class='message-body me']/p[text()='"+smsText+"']")));			
+	}
+	catch(org.openqa.selenium.TimeoutException ex)
+	{
+		System.out.println("Timeout exception - Chat Message ----------"+ smsText +" ---------- not found on UI");  
+		smsfailureCount = smsfailureCount + 1;
+		System.out.println("Current SMS failure count is " +smsfailureCount);  				
+	}		
+}	
+Thread.sleep(5000);	
+lWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//div[@class='message-wrapper']/div/div/a/dfx-icon[@icon='close']")));
+WDS.browser.findElement(By.xpath("//div[@class='message-wrapper']/div/div/a/dfx-icon[@icon='close']")).click();
+System.out.println("<====== Clicked close button for SMS window ======>");	
+System.out.println("*****************Total chat message failure count is "+ chatMessagefailureCount);  
+System.out.println("*****************Total SMS failure count is "+ smsfailureCount);  
+System.out.println("<====== Closed the browser ======>");
+Thread.sleep(5000);
+if(smsfailureCount > 0 || chatMessagefailureCount > 0){
+	System.out.println("*****************Throwing exception forcefully**************"); 	
+	throw new java.lang.InterruptedException();
+}
+WDS.sampleResult.sampleEnd();
