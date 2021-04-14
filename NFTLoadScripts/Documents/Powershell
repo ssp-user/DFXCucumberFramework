@@ -1,0 +1,28 @@
+
+********************************POWERSHELL COMMANDS**************************************
+
+gci src/test/resources/com/features/communicationDashboardfeatures/*.feature -recurse | ForEach {
+  (Get-Content $_ | ForEach {$_ -replace "TEST2", "$($env:Test_Environment)"}) | Set-Content $_ 
+}
+switch($($env:Browser_headless)){
+  "Headless"{
+     gci src/test/resources/com/features/communicationDashboardfeatures/*.feature -recurse | ForEach {
+   (Get-Content $_ | ForEach {$_ -replace "GUI", "headless"}) | Set-Content $_ 
+   }
+  }
+  "GUI"{
+     gci src/test/resources/com/features/communicationDashboardfeatures/*.feature -recurse | ForEach {
+   (Get-Content $_ | ForEach {$_ -replace "headless", "GUI"}) | Set-Content $_ 
+   }
+  }
+}
+
+gci src/test/java/com/autotest/testrunner/communicationdashboard/CommunicationDashboardTestRunner.java -recurse | ForEach {
+  (Get-Content $_ | ForEach {$_ -replace "Default", "$($env:Cucumber_Tag)"}) | Set-Content $_ 
+}
+
+**********************************MAVEN COMMANDS*****************************************
+@ECHO OFF
+echo %cd%
+CALL mvn clean package -DskipTests
+CALL mvn clean install -Pcommunicationdashboard
