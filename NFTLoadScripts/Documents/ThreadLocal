@@ -1,0 +1,420 @@
+package com.ephesoft.automation.sanity.pages;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Method;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.sql.SQLException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.log4j.Logger;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.remote.DesiredCapabilities;
+import org.openqa.selenium.remote.LocalFileDetector;
+import org.openqa.selenium.remote.RemoteWebDriver;
+import org.openqa.selenium.support.ui.WebDriverWait;
+import org.testng.Assert;
+import org.testng.ITestResult;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
+import org.testng.annotations.Parameters;
+import org.testng.annotations.Test;
+
+import com.browserstack.local.Local;
+import com.ephesoft.automation.database.DatabaseConnection;
+import com.ephesoft.automation.framework.DriverFactory;
+import com.ephesoft.automation.framework.DriverManager;
+import com.ephesoft.automation.framework.EnvData;
+import com.ephesoft.automation.utils.TestUtility;
+import com.ephesoft.automation.utils.ExtentReports.ExtentTestManager;
+
+/**
+ * Base parent class for all the test cases.
+ * 
+ * @author singh.saurabh
+ *
+ */
+public class TestBaseClass extends EnvData {
+
+	Logger logger = Logger.getLogger(TestBaseClass.class);
+
+	public WebDriver driver;
+	public WebDriverWait wait;
+	public Pages page;
+
+	public static final String HOME = System.getProperty("user.dir");
+	public static final long TimeStamp = System.currentTimeMillis();
+	public static String DROP_LOCATION;
+
+	private Local local;
+	private JSONParser parser;
+	private static String testCaseName;
+	public static ThreadLocal<Method> localTestCaseMethod = new ThreadLocal<Method>();
+	public static int defaultImplicitWaitTime;
+	private String bsSessionInfoUrl;
+	private String bsSessionID;
+	private String reason;
+
+	private String status;
+
+	@BeforeMethod
+	public void beforeMethod(Method method) throws IOException {
+		/*
+		 * Get the executed test method name
+		 */
+		localTestCaseMethod.set(method);
+//		Test test = localTestCaseMethod.get().getAnnotation(Test.class);
+//		testCaseName = test.description();
+		//testCaseName = localTestCaseMethod.get().getAnnotation(Test.class).description();		
+		ExtentTestManager.startTest(method.getName(), localTestCaseMethod.get().getAnnotation(Test.class).description());
+		logger.info("Method Starts " + StringUtils.repeat("-", 60));
+		logger.info("Method Starts ----------: " + localTestCaseMethod.get().getAnnotation(Test.class).description());
+		logger.info("Method Starts " + StringUtils.repeat("-", 60));
+
+	}
+
+	/**
+	 * Setup method for test cases.
+	 * 
+	 * @param configFile
+	 * @param environment
+	 * @param runBrowserStack
+	 * @throws Exception
+	 */
+	@BeforeMethod
+	@Parameters(value = { "config", "browser", "runBrowserStack" })
+	public void setUp(@Optional String configFile, @Optional String browser, boolean runBrowserStack) throws Exception {
+		logger.info("configFile=" + configFile + ", browser=" + browser + ", runBrowserStack=" + runBrowserStack);
+
+		defaultImplicitWaitTime = Integer.valueOf(EnvData.getValue("DRIVER_IMPLICIT_WAIT"));
+
+		if (runBrowserStack) {
+			setUpBrowserStack(configFile, browser);
+		} else {
+			setUpLocalQa(configFile, browser, runBrowserStack);
+		}
+	}
+
+	@AfterMethod
+	@Parameters(value = { "runBrowserStack" })
+	public void afterMethod(boolean runBrowserStack) throws SQLException, IOException, ParseException {
+		if (runBrowserStack) {
+			// log the test execution public URL for audit and debugging
+			logger.info("Video playback URL: " + getBrowserStackSessionInfo(bsSessionInfoUrl, "public_url"));
+		}
+		DriverManager.closeDriver();
+		DatabaseConnection.closeConnection();
+	}
+
+	@AfterMethod
+	@Parameters(value = { "runBrowserStack" })
+	public void afterMethod(ITestResult result, boolean runBrowserStack) {
+		try {
+			if (runBrowserStack) {
+				if (result.getStatus() == ITestResult.SUCCESS) {
+					status = "passed";
+					reason = "test completed successfully";
+				} else if (result.getStatus() == ITestResult.FAILURE) {
+					status = "failed";
+					reason = result.getThrowable().toString();
+				} else if (result.getStatus() == ITestResult.SKIP) {
+					status = "failed";
+					reason = result.getThrowable().toString();
+				}
+				String username = EnvData.getValue("BROWSERSTACK_USERNAME");
+				String accessKey = EnvData.getValue("BROWSERSTACK_ACCESS_KEY");
+				updateTestStatus(username, accessKey, bsSessionID, status, reason);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+
+	@AfterMethod(alwaysRun = true)
+	public void tearDown() throws Exception {
+		DatabaseConnection.closeConnection();
+		if (driver != null) {
+			if (page.driver != null) {
+				page.driver.quit();
+			}
+			driver.quit();
+		}
+	}
+
+	/**
+	 * establish database connection
+	 * 
+	 * @throws SQLException
+	 */
+	protected void establishDatabaseConnection() throws SQLException {
+		DatabaseConnection.establishMySqlConnection();
+	}
+
+	/**
+	 * TestCase setup for BrowserStack.
+	 * 
+	 * @param config_file
+	 * @param browser
+	 * @throws Exception
+	 */
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	private void setUpBrowserStack(String config_file, String browser) throws Exception {
+		/*
+		 * Read Configuration file
+		 */
+		JSONParser parser = new JSONParser();
+		JSONObject config = (JSONObject) parser.parse(new FileReader("src/test/resources/conf/" + config_file));
+		JSONObject envs = (JSONObject) config.get("environments");
+
+		DesiredCapabilities capabilities = new DesiredCapabilities();
+		/*
+		 * Read Environment capabilities
+		 */
+		Map<String, String> envCapabilities = (Map<String, String>) envs.get(browser);
+		Iterator it = envCapabilities.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry pair = (Map.Entry) it.next();
+			capabilities.setCapability(pair.getKey().toString(), pair.getValue().toString());
+		}
+
+		/*
+		 * Read common capabilities
+		 */
+		Map<String, String> commonCapabilities = (Map<String, String>) config.get("capabilities");
+		it = commonCapabilities.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry pair = (Map.Entry) it.next();
+			if (capabilities.getCapability(pair.getKey().toString()) == null) {
+				if (pair.getKey().toString().equals("build")) {
+					String timeStamp = new SimpleDateFormat("dd/MM/yy").format(Calendar.getInstance().getTime());					
+					capabilities.setCapability(pair.getKey().toString(), pair.getValue().toString() + EnvData.getValue("OS_TYPE") + "-" + EnvData.getValue("DB_CONNECTION_TYPE")+ "-" + EnvData.getValue("DB_VERSION")+ "-" + timeStamp);
+				}
+				else {
+					capabilities.setCapability(pair.getKey().toString(), pair.getValue().toString());	
+				}
+			}
+		}
+
+		/*
+		 * URL from env
+		 */
+		String url = EnvData.getValue("URL");
+
+		/*
+		 * Browser Stack UserName
+		 */
+		String username = EnvData.getValue("BROWSERSTACK_USERNAME");
+
+		/*
+		 * BrowerStack Access Key
+		 */
+		String accessKey = EnvData.getValue("BROWSERSTACK_ACCESS_KEY");
+
+		/*
+		 * BrowserStack AppId
+		 */
+		String app = EnvData.getValue("BROWSERSTACK_APP_ID");
+		if (app != null && !app.isEmpty()) {
+			capabilities.setCapability("app", app);
+		}
+
+		/*
+		 * Set options according to local environment
+		 */
+		if (capabilities.getCapability("browserstack.local") != null
+				&& capabilities.getCapability("browserstack.local") == "true") {
+			local = new Local();
+			Map<String, String> options = new HashMap<String, String>();
+			options.put("key", accessKey);
+			local.start(options);
+		}
+
+		capabilities.setCapability("resolution", "1920x1080");
+
+		capabilities.setCapability("name", localTestCaseMethod.get().getAnnotation(Test.class).description());
+
+		/*
+		 * Generate Remote WebDriver
+		 */
+		driver = new RemoteWebDriver(
+				new URL("http://" + username + ":" + accessKey + "@" + config.get("server") + "/wd/hub"), capabilities);
+
+		logger.info("Connected to BrowserStack..");
+
+		((RemoteWebDriver) driver).setFileDetector(new LocalFileDetector());
+
+		bsSessionID = ((RemoteWebDriver) driver).getSessionId().toString();
+
+		bsSessionInfoUrl = "https://" + username + ":" + accessKey + "@api.browserstack.com/automate/sessions/"
+				+ bsSessionID;
+
+		driver.manage().window().maximize();
+		driver.manage().timeouts().implicitlyWait(defaultImplicitWaitTime, TimeUnit.SECONDS);
+
+		page = new Pages(driver);
+		logger.info(url);
+
+		driver.get(url);
+
+		/*
+		 * Get Login page object and do login using userName/password
+		 */
+		page.getPageObject(LoginPage.class).loginToHome(EnvData.getValue("EP_USERNAME"),
+				EnvData.getValue("EP_PASSWORD"));
+		DROP_LOCATION = TestUtility.setDropLocation(driver);
+	}
+
+	/**
+	 * TestCase setup for local qa environment.
+	 * 
+	 * @param config_file
+	 * @param browser
+	 * @throws Exception
+	 */
+	private void setUpLocalQa(String configFile, String browser, boolean runBrowserStack) throws InterruptedException {
+		driver = DriverManager.getDriver();
+		if (driver == null) {
+			DriverManager.setWebDriver(DriverFactory.getDriver(browser));
+			driver = DriverManager.getDriver();
+			logger.info("Connected to Local server..");
+			driver.manage().window().maximize();
+
+			driver.manage().timeouts().implicitlyWait(defaultImplicitWaitTime, TimeUnit.SECONDS);
+
+			page = new Pages(driver);
+			driver.get(EnvData.getValue("URL"));
+			page.getPageObject(LoginPage.class).loginToHome(EnvData.getValue("EP_USERNAME"),
+					EnvData.getValue("EP_PASSWORD"));
+			DROP_LOCATION = TestUtility.setDropLocation(driver);
+		}
+	}
+
+	/**
+	 * Method to Verify result
+	 * 
+	 * @param result
+	 * @param desc
+	 * @param desc2
+	 */
+	public void verifyMethod(boolean result, String desc, String desc2) {
+		if (result) {
+			logger.info("PASS" + "  " + desc);
+		} else {
+			logger.info("Fail" + "  " + desc2);
+			logger.info("Rest steps of script skipped as fail found");
+			Assert.fail();
+		}
+	}
+
+	/**
+	 * Method to Verify result for negative result to get pass
+	 * 
+	 * @param result
+	 * @param desc
+	 * @param desc2
+	 */
+	public void verifyMethodNegative(boolean result, String desc, String desc2) {
+		if (!result) {
+			logger.info("PASS" + "  " + desc);
+		} else {
+			logger.info("Fail" + "  " + desc2);
+			logger.info("Rest steps of script skipped as fail found");
+			Assert.fail();
+		}
+	}
+
+	/**
+	 * Get Browser Stack Session Information
+	 * 
+	 * @param bsSessionURL
+	 * @param sessionField
+	 * @throws IOException
+	 * @throws ClientProtocolException
+	 * @throws ParseException
+	 */
+	public String getBrowserStackSessionInfo(String bsSessionURL, String sessionField)
+			throws IOException, ClientProtocolException, ParseException {
+		String type = "application/json";
+		CloseableHttpClient httpclient = HttpClients.createDefault();
+		HttpGet getRequest = new HttpGet(bsSessionURL);
+		getRequest.setHeader("Accept", type);
+		getRequest.setHeader("Content-type", type);
+		CloseableHttpResponse response = httpclient.execute(getRequest);
+		JSONObject jsonObj = convertToJSON(response);
+		return ((JSONObject) jsonObj.get("automation_session")).get(sessionField) + "";
+	}
+
+	/**
+	 * Convert Http Response to JSON
+	 * 
+	 * @param response
+	 * @return
+	 * @throws ParseException
+	 * @throws IOException
+	 */
+	public JSONObject convertToJSON(CloseableHttpResponse response) throws ParseException, IOException {
+		if (response != null) {
+			parser = new JSONParser();
+			BufferedReader bufferedReader = new BufferedReader(
+					new InputStreamReader(response.getEntity().getContent()));
+			JSONObject jsonObj = (JSONObject) parser.parse(bufferedReader.readLine());
+			return jsonObj;
+		}
+		return null;
+	}
+
+	/**
+	 * method to mark tests as passed or failed. You can also pass a reason for
+	 * failure.
+	 * 
+	 * @param username
+	 * @param accessKey
+	 * @param sessionId
+	 * @param status
+	 * @param reason
+	 * @throws URISyntaxException
+	 * @throws UnsupportedEncodingException
+	 * @throws IOException
+	 */
+	public static void updateTestStatus(String username, String accessKey, String bsSessionID, String status,
+			String reason) throws URISyntaxException, UnsupportedEncodingException, IOException {
+		URI uri = new URI("https://" + username + ":" + accessKey + "@api.browserstack.com/automate/sessions/"
+				+ bsSessionID + ".json");
+		HttpPut putRequest = new HttpPut(uri);
+
+		ArrayList<NameValuePair> nameValuePairs = new ArrayList<NameValuePair>();
+		nameValuePairs.add((new BasicNameValuePair("status", status)));
+		nameValuePairs.add((new BasicNameValuePair("reason", reason)));
+		putRequest.setEntity(new UrlEncodedFormEntity(nameValuePairs));
+
+		HttpClientBuilder.create().build().execute(putRequest);
+	}
+
+}
